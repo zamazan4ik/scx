@@ -356,11 +356,11 @@ static void dispatch_user_scheduler(void)
 /*
  * Select the target CPU where a task can be executed.
  *
- * The idea here is to try to find an idle CPU in the system, and preferably
- * maintain the task on the same CPU. If we can find an idle CPU in the system
- * dispatch the task directly bypassing the user-space scheduler. Otherwise,
- * send the task to the user-space scheduler, maintaining the previously used
- * CPU as a hint for the scheduler.
+ * The idea here is to maintain the task on the same CPU: if the current task's
+ * is idle dispatch the task directly, bypassing the user-space scheduler.
+ *
+ * Otherwise, send the task to the user-space scheduler, maintaining the
+ * previously used CPU as a hint for the scheduler.
  *
  * Decision made in this function is not final. The user-space scheduler may
  * decide to move the task to a different CPU later, if needed.
@@ -368,11 +368,9 @@ static void dispatch_user_scheduler(void)
 s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 		   u64 wake_flags)
 {
-	bool is_idle = false;
 	s32 cpu;
 
-	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (is_idle) {
+	if (!get_cpu_owner(prev_cpu)) {
 		/*
 		 * Using SCX_DSQ_LOCAL ensures that the task will be executed
 		 * directly on the CPU returned by this function.
@@ -381,7 +379,7 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 		__sync_fetch_and_add(&nr_kernel_dispatches, 1);
 	}
 
-	return cpu;
+	return prev_cpu;
 }
 
 /*
@@ -769,7 +767,7 @@ struct sched_ext_ops rustland = {
 	.exit_task		= (void *)rustland_exit_task,
 	.init			= (void *)rustland_init,
 	.exit			= (void *)rustland_exit,
-	.flags			= SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE,
+	.flags			= SCX_OPS_ENQ_LAST,
 	.timeout_ms		= 5000,
 	.name			= "rustland",
 };
