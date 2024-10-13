@@ -33,6 +33,8 @@ const SCHEDULER_NAME: &'static str = "RustLand";
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
+const SCX_ENQ_WAKEUP: u64 = 1;
+
 /// scx_rustland: user-space scheduler written in Rust
 ///
 /// scx_rustland is designed to prioritize interactive workloads over background CPU-intensive
@@ -336,7 +338,11 @@ impl<'a> Scheduler<'a> {
         self.min_vruntime += vslice;
 
         // Return the task's deadline.
-        let latency_weight = task_info.avg_nvcsw.min(RL_MAX_DEADLINE_FACTOR) + 1;
+        let latency_weight = if task.flags & SCX_ENQ_WAKEUP != 0 {
+            RL_MAX_DEADLINE_FACTOR
+        } else {
+            task_info.avg_nvcsw.min(RL_MAX_DEADLINE_FACTOR) + 1
+        };
         task_info.vruntime / latency_weight + vslice * 100 / task.weight
     }
 
