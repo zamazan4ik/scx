@@ -52,31 +52,31 @@ struct sdt_task_pool __arena_global sdt_task_chunk_pool = {
 
 struct sdt_task_pool __arena_global sdt_task_data_pool;
 
-static SDT_TASK_FN_ATTRS int sdt_ffz(__u64 word)
+static SDT_TASK_FN_ATTRS int sdt_ffs(__u64 word)
 {
 	unsigned int num = 0;
 
-	if ((word & 0xffffffff) == 0xffffffff) {
+	if ((word & 0xffffffff) == 0) {
 		num += 32;
 		word >>= 32;
 	}
-	if ((word & 0xffff) == 0xffff) {
+	if ((word & 0xffff) == 0) {
 		num += 16;
 		word >>= 16;
 	}
-	if ((word & 0xff) == 0xff) {
+	if ((word & 0xff) == 0) {
 		num += 8;
 		word >>= 8;
 	}
-	if ((word & 0xf) == 0xf) {
+	if ((word & 0xf) == 0) {
 		num += 4;
 		word >>= 4;
 	}
-	if ((word & 0x3) == 0x3) {
+	if ((word & 0x3) == 0) {
 		num += 2;
 		word >>= 2;
 	}
-	if ((word & 0x1) == 0x1)
+	if ((word & 0x1) == 0)
 		num += 1;
 	return num;
 }
@@ -90,7 +90,7 @@ static SDT_TASK_FN_ATTRS __s64 sdt_task_find_empty(struct sdt_task_desc __arena 
 		if (desc->bitmap[i] == ~(__u64)0)
 			pos += 64;
 		else
-			return pos + sdt_ffz(desc->bitmap[i]);
+			return pos + sdt_ffs(~desc->bitmap[i]);
 	}
 
 	return -EBUSY;
