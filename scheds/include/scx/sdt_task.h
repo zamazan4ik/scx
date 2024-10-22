@@ -42,3 +42,12 @@ struct sdt_task_chunk {
 		struct sdt_task_data __arena *data[SDT_TASK_ENTS_PER_CHUNK];
 	};
 };
+
+struct sdt_task_pool_elem {
+	struct sdt_task_pool_elem __arena *next;
+};
+
+struct sdt_task_pool {
+	struct sdt_task_pool_elem __arena *first;
+	__u64				elem_size;
+};

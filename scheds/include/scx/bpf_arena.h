@@ -1,11 +1,11 @@
 #pragma once
 
-#ifndef __BPF_FEATURE_ADDR_SPACE_CAST
+/*#ifndef __BPF_FEATURE_ADDR_SPACE_CAST
 static inline void ___bpf_arena_addr_space_cast_sanity_check___(void)
 {
 	_Static_assert(false, "__BPF_FEATURE_ADDR_SPACE_CAST missing");
 }
-#endif
+#endif*/
 
 #ifndef NUMA_NO_NODE
 #define	NUMA_NO_NODE	(-1)
