@@ -27,8 +27,9 @@ struct {
 	__type(value, struct sdt_task_map_val);
 } sdt_task_map SEC(".maps");
 
-struct sdt_task_desc __arena *sdt_task_desc_root;
-struct sdt_task_desc __arena *sdt_task_new_chunk;
+static struct sdt_task_desc __arena *sdt_task_desc_root;
+static struct sdt_task_desc __arena *sdt_task_new_chunk;
+static __u64 __arena sdt_task_data_size;
 
 private(LOCK) struct bpf_spin_lock sdt_task_lock;
 private(POOL_LOCK) struct bpf_spin_lock sdt_task_pool_alloc_lock;
@@ -170,6 +171,8 @@ static SDT_TASK_FN_ATTRS void sdt_task_free_chunk(struct sdt_task_desc __arena *
 
 static SDT_TASK_FN_ATTRS int sdt_task_init(__u64 data_size)
 {
+	sdt_task_data_size = data_size;
+
 	data_size = div_round_up(data_size, 8) * 8;
 	data_size += sizeof(struct sdt_task_data);
 
@@ -208,8 +211,7 @@ static SDT_TASK_FN_ATTRS void sdt_task_free_idx(int idx)
 	if (data) {
 		data->tid.gen++;
 		data->tptr = 0;
-		__builtin_memset(data->data, 0, sdt_task_data_pool.elem_size -
-				 offsetof(struct sdt_task_data, data));
+		__builtin_memset(data->data, 0, sdt_task_data_size);
 	}
 
 	bpf_spin_unlock(&sdt_task_lock);
