@@ -138,15 +138,6 @@ struct Opts {
     #[clap(short = 'l', long, allow_hyphen_values = true, default_value = "20000")]
     slice_us_lag: i64,
 
-    /// With lowlatency enabled, instead of classifying tasks as interactive or non-interactive,
-    /// they all get a dynamic priority, which is adjusted in function of their average rate of
-    /// voluntary context switches.
-    ///
-    /// This option guarantess less spikey behavior and it can be particularly useful in soft
-    /// real-time scenarios, such as audio processing, multimedia, etc.
-    #[clap(short = 'L', long, action = clap::ArgAction::SetTrue)]
-    lowlatency: bool,
-
     /// Enable kthreads prioritization.
     ///
     /// Enabling this can improve system performance, but it may also introduce interactivity
@@ -259,7 +250,6 @@ impl<'a> Scheduler<'a> {
         // Override default BPF scheduling parameters.
         skel.maps.rodata_data.debug = opts.debug;
         skel.maps.rodata_data.smt_enabled = smt_enabled;
-        skel.maps.rodata_data.lowlatency = opts.lowlatency;
         skel.maps.rodata_data.local_kthreads = opts.local_kthreads;
         skel.maps.rodata_data.slice_max = opts.slice_us * 1000;
         skel.maps.rodata_data.slice_min = opts.slice_us_min * 1000;

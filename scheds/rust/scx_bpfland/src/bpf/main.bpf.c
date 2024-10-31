@@ -56,17 +56,6 @@ const volatile s64 slice_lag = 20ULL * NSEC_PER_MSEC;
 const volatile bool local_kthreads;
 
 /*
- * With lowlatency enabled, instead of classifying tasks as interactive or
- * non-interactive, they all get a dynamic priority, which is adjusted in
- * function of their average rate of voluntary context switches.
- *
- * This option guarantess less spikey behavior and it can be particularly
- * useful in soft real-time scenarios, such as audio processing, multimedia,
- * etc.
- */
-const volatile bool lowlatency;
-
-/*
  * Maximum threshold of voluntary context switches.
  */
 const volatile u64 nvcsw_max_thresh = 10ULL;
@@ -276,29 +265,11 @@ static u64 calc_avg_clamp(u64 old_val, u64 new_val, u64 low, u64 high)
 }
 
 /*
- * Return the dynamic priority multiplier (only applied in lowlatency mode).
- *
- * The multiplier is evaluated in function of the task's average rate of
- * voluntary context switches per second.
- */
-static u64 task_dyn_prio(struct task_struct *p)
-{
-	struct task_ctx *tctx;
-
-	if (!lowlatency)
-		return 1;
-	tctx = try_lookup_task_ctx(p);
-	if (!tctx)
-		return 1;
-	return MAX(tctx->lat_weight, 1);
-}
-
-/*
  * Return task's dynamic priority.
  */
 static u64 task_prio(struct task_struct *p)
 {
-	return p->scx.weight * task_dyn_prio(p);
+	return p->scx.weight;
 }
 
 /*
@@ -373,13 +344,9 @@ static inline void task_refill_slice(struct task_struct *p)
 
 	/*
 	 * Scale the time slice of an inversely proportional factor of the
-	 * total amount of tasks that are waiting (use a more immediate metric
-	 * in lowlatency mode and an average in normal mode).
+	 * total amount of tasks that are waiting.
 	 */
-	if (lowlatency)
-		scale_factor = curr_shared_waiting + 1;
-	else
-		scale_factor = nr_prio_waiting + nr_shared_waiting + 1;
+	scale_factor = nr_prio_waiting + nr_shared_waiting + 1;
 
 	p->scx.slice = CLAMP(slice_max / scale_factor, slice_min, slice_max);
 }
@@ -696,7 +663,7 @@ static void kick_task_cpu(struct task_struct *p)
 
 	cpu = pick_idle_cpu(p, cpu, 0);
 	if (cpu >= 0)
-		scx_bpf_kick_cpu(cpu, 0);
+		scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE);
 }
 
 /*
@@ -713,26 +680,10 @@ void BPF_STRUCT_OPS(bpfland_enqueue, struct task_struct *p, u64 enq_flags)
 		return;
 
 	/*
-	 * Per-CPU kthreads are critical for system responsiveness so make sure
-	 * they are dispatched before any other task.
-	 *
-	 * If local_kthread is specified dispatch all kthreads directly.
-	 */
-	if (is_kthread(p) && (local_kthreads || p->nr_cpus_allowed == 1)) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL,
-				 enq_flags | SCX_ENQ_PREEMPT);
-		__sync_fetch_and_add(&nr_kthread_dispatches, 1);
-		return;
-	}
-
-	/*
 	 * Dispatch interactive tasks to the priority DSQ and regular tasks to
 	 * the shared DSQ.
-	 *
-	 * When lowlatency is enabled, the separate priority DSQ is disabled,
-	 * so in this case always dispatch to the shared DSQ.
 	 */
-	if (!lowlatency && tctx->is_interactive) {
+	if (tctx->is_interactive) {
 		dsq_id = PRIO_DSQ;
 		__sync_fetch_and_add(&nr_prio_dispatches, 1);
 	} else {
@@ -908,6 +859,12 @@ void BPF_STRUCT_OPS(bpfland_running, struct task_struct *p)
 	 */
 	if (tctx->is_interactive)
 		__sync_fetch_and_add(&nr_interactive, 1);
+
+	/*
+	 * Update global vruntime.
+	 */
+	if (vtime_before(vtime_now, p->scx.dsq_vtime))
+		vtime_now = p->scx.dsq_vtime;
 }
 
 /*
@@ -959,8 +916,6 @@ void BPF_STRUCT_OPS(bpfland_stopping, struct task_struct *p, bool runnable)
 	 * Update task's average runtime.
 	 */
 	slice = p->se.sum_exec_runtime - tctx->sum_exec_runtime;
-	if (lowlatency)
-		slice = CLAMP(slice, slice_min, slice_max);
 	tctx->sum_exec_runtime = p->se.sum_exec_runtime;
 	tctx->avg_runtime = calc_avg(tctx->avg_runtime, slice);
 
@@ -970,11 +925,6 @@ void BPF_STRUCT_OPS(bpfland_stopping, struct task_struct *p, bool runnable)
 	slice = scale_inverse_fair(p, slice);
 	p->scx.dsq_vtime += slice;
 	tctx->deadline = p->scx.dsq_vtime + task_compute_dl(p, tctx);
-
-	/*
-	 * Update global vruntime.
-	 */
-	vtime_now += slice;
 
 	/*
 	 * Refresh voluntary context switch metrics.
@@ -1226,5 +1176,6 @@ SCX_OPS_DEFINE(bpfland_ops,
 	       .init_task		= (void *)bpfland_init_task,
 	       .init			= (void *)bpfland_init,
 	       .exit			= (void *)bpfland_exit,
+	       .flags			= SCX_OPS_ENQ_EXITING,
 	       .timeout_ms		= 5000,
 	       .name			= "bpfland");
