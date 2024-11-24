@@ -759,20 +759,8 @@ impl BpfStats {
         for llc_id in 0..nr_llcs {
             for layer_id in 0..nr_layers {
                 for stat_id in 0..NR_LLC_LSTATS {
-                    let key = llc_id as u32;
-                    let llc_id_slice = unsafe {
-                        std::slice::from_raw_parts(
-                            (&key as *const u32) as *const u8,
-                            std::mem::size_of::<u32>(),
-                        )
-                    };
-                    let v = skel
-                        .maps
-                        .llc_data
-                        .lookup(llc_id_slice, libbpf_rs::MapFlags::ANY)
-                        .unwrap();
-                    let llcc = unsafe { *(v.as_slice().as_ptr() as *const bpf_intf::llc_ctx) };
-                    llc_lstats[layer_id][llc_id][stat_id] = llcc.lstats[layer_id][stat_id];
+                    llc_lstats[layer_id][llc_id][stat_id] =
+                        skel.maps.bss_data.llc_ctxs[llc_id].lstats[layer_id][stat_id];
                 }
             }
         }

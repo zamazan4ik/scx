@@ -164,6 +164,9 @@ struct {
 	__uint(max_entries, 1);
 } cpu_ctxs SEC(".maps");
 
+struct node_ctx node_ctxs[MAX_NUMA_NODES];
+struct llc_ctx llc_ctxs[MAX_LLCS];
+
 static struct cpu_ctx *lookup_cpu_ctx(int cpu)
 {
 	struct cpu_ctx *cpuc;
@@ -182,38 +185,18 @@ static struct cpu_ctx *lookup_cpu_ctx(int cpu)
 	return cpuc;
 }
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__type(key, u32);
-	__type(value, struct node_ctx);
-	__uint(max_entries, MAX_NUMA_NODES);
-	__uint(map_flags, 0);
-} node_data SEC(".maps");
-
-static struct node_ctx *lookup_node_ctx(u32 node)
+static __always_inline struct node_ctx *lookup_node_ctx(u32 node_id)
 {
-	struct node_ctx *nodec;
-
-	if (!(nodec = bpf_map_lookup_elem(&node_data, &node)))
-		scx_bpf_error("no node_ctx");
-	return nodec;
+	if (node_id >= MAX_NUMA_NODES)
+		scx_bpf_error("invalid node_id %u", node_id);
+	return &node_ctxs[node_id];
 }
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__type(key, u32);
-	__type(value, struct llc_ctx);
-	__uint(max_entries, MAX_LLCS);
-	__uint(map_flags, 0);
-} llc_data SEC(".maps");
-
-static struct llc_ctx *lookup_llc_ctx(u32 llc_id)
+static __always_inline struct llc_ctx *lookup_llc_ctx(u32 llc_id)
 {
-	struct llc_ctx *llcc;
-
-	if (!(llcc = bpf_map_lookup_elem(&llc_data, &llc_id)))
-		scx_bpf_error("no llc_ctx");
-	return llcc;
+	if (llc_id >= MAX_LLCS)
+		scx_bpf_error("invalid llc_id %u", llc_id);
+	return &llc_ctxs[llc_id];
 }
 
 static void gstat_inc(u32 id, struct cpu_ctx *cpuc)
