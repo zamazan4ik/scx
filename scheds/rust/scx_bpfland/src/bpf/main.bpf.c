@@ -448,6 +448,18 @@ static u64 task_vtime(struct task_struct *p, struct task_ctx *tctx)
  */
 static inline void task_refill_slice(struct task_struct *p)
 {
+	u64 nr_waiting = nr_tasks_waiting();
+
+	/*
+	 * If there are CPUs available just use an unlmited time slice. The
+	 * task will be preempted as soon as another task wants to run and no
+	 * CPUs are available.
+	 */
+	if (!nr_waiting) {
+		p->scx.slice = SCX_SLICE_INF;
+		return;
+	}
+
 	/*
 	 * Scale the time slice of an inversely proportional factor of the
 	 * total amount of tasks that are waiting.
@@ -782,12 +794,21 @@ s32 BPF_STRUCT_OPS(bpfland_select_cpu, struct task_struct *p,
  */
 static void kick_task_cpu(struct task_struct *p)
 {
+	struct task_struct *current = (void *)bpf_get_current_task_btf();
 	s32 cpu = scx_bpf_task_cpu(p);
 	bool is_idle = false;
 
 	cpu = pick_idle_cpu(p, cpu, 0, &is_idle);
-	if (is_idle)
+	if (is_idle) {
 		scx_bpf_kick_cpu(cpu, 0);
+		return;
+	}
+
+	/*
+	 * Kick the current task if it's running at infinite time slice.
+	 */
+	if (current->scx.slice == SCX_SLICE_INF)
+		scx_bpf_kick_cpu(bpf_get_smp_processor_id(), SCX_KICK_PREEMPT);
 }
 
 /*
@@ -988,7 +1009,7 @@ void BPF_STRUCT_OPS(bpfland_stopping, struct task_struct *p, bool runnable)
 	/*
 	 * Update task's average runtime.
 	 */
-	slice = now - tctx->last_run_at;
+	slice = MIN(now - tctx->last_run_at, slice_max);
 	tctx->sum_runtime += slice;
 	tctx->avg_runtime = calc_avg(tctx->avg_runtime, tctx->sum_runtime);
 
